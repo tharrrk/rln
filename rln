@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+VERSION="2021.03.27.000"
+
+# Can supply -- argument in case we need to work with file names colliding with options below
+[ ! "${1}" = "--" ] && {
+
+  [ "${1}" = "--version" -o "${1}" = "-V" ] && echo "${BASH_SOURCE[0]##*/} version ${VERSION}" && exit
+
+  [ "${1}" = "--help" -o "${1}" = "-h" -o $# -eq 0 ] && \
+    echo "${BASH_SOURCE[0]##*/} [-f] <symlink> - relativize symlink if possible (same mount point only unless -f is given). Target is fully dereferenced." && \
+    exit
+
+  [ "${1}" = "-f" ] && \
+    FORCE_RLN=1 && \
+    shift
+
+  :
+
+} || shift
+
+# Check we have readlink and ln
+readlink --version &>/dev/null && ln --version &>/dev/null || { echo "ERROR: Please install GNU coreutils (readlink, ln)." >&2; exit 3; }
+
+# This might change in future (and loop through all given links) but not now
+[ $# -ne 1 ] && \
+  echo "ERROR: Too many arguments." >&2 && \
+  exit 10
+
+# Link
+L="${1}"
+
+# Is the given link in the current dir? prepend ./ then
+[ -z "${L//[^\/]/}" ] && L="./${L}"
+
+# Is it a link at all?
+[ ! -L "${L}" ] && \
+  echo "ERROR: '${L}' is not a symlink." >&2 && \
+  exit 1
+
+# Target
+T="$(readlink -f "${L}")"
+
+[ -z "${T}" ] && \
+  echo "ERROR: Cannot resolve symlink." >&2 && \
+  exit 12
+
+[ ! -e "${T}" -a "${FORCE_RLN}" = "1" ] && \
+  echo "WARNING: Symlink target ('${T}') does not exist." >&2
+
+# Mount points for link and target
+LM="$(stat -c "%m" "${L}" 2>/dev/null)"
+TM="$(stat -c "%m" "${T}" 2>/dev/null)"
+
+# Do they differ?
+[ ! "${FORCE_RLN}" = "1" -a ! "${LM}" = "${TM}" ] && \
+  echo "ERROR: The mount points for symlink itself and its target differ. This might possibly cause issues when mounted elsewhere. Specify -f if you are absolutely sure." >&2 && \
+  exit 11
+
+# Parent dir
+P="${L%/*}"
+[ "${P}" = "${L}" ] && \
+  echo "ERROR: Something went very wrong while resolving symlink." >&2 && exit 253  # should never happen but would break things so panic out
+
+# Resolve it if it's a symlink or just canonicalize
+LP="$(readlink -f "${P}")"
+
+# Parent of the target
+TP="${T%/*}"
+
+# Split parents to arrays
+IFS="/" read -a LPA <<<"${LP}"
+IFS="/" read -a TPA <<<"${TP}"
+
+I=0
+while [ ${I} -lt ${#LPA[@]} -a "${LPA[$I]}" = "${TPA[$I]}" ]; do : $((I++)); done
+
+# Same (common) part of the paths
+SP=""
+N=0
+while (( I>++N )); do SP+="/${TPA[$N]}"; done
+
+# Remaining parts
+RTP="${TP#$SP}"
+RLP="${LP#$SP}"
+
+# Build relative path
+RP=""
+
+# Replace directories in remaining link path with ..
+[ -n "${RLP}" ] && {
+  TEMP="${RLP//[^\/]/}"
+  TEMP="${TEMP//\//\/..}"
+  RP="${TEMP#/}/"
+}
+
+# Append remaining target path part without leading /
+RP+="${RTP:+${RTP#/}}"
+
+# Debug
+[ -n "${DEBUG}" ] && echo "===DEBUG===
+ LP='${LP}' (${LPA[@]})
+ TP='${TP}' (${TPA[@]})
+ SP='${SP}'
+RLP='${RLP}'
+RTP='${RTP}'
+ RP='${RP}'
+===DEBUG==="
+
+# Do the replace (if the link is still there)
+stat -c "Replacing %N" "${L}"
+[ ! -e "${LP:+$LP/}${RP:+${RP%/}/}${T#${TP:+$TP/}}" ] && \
+  echo "ERROR: Either race condition happened or there's a bug in this script. To debug or report an issue please re-run with DEBUG env var set first." >&2 || \
+  ln -sfnv "${RP:+${RP%/}/}${T#${TP:+$TP/}}" "${L}"
