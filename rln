@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="2021.03.27.000"
+VERSION="2021.11.19.000"
 
 # Can supply -- argument in case we need to work with file names colliding with options below
 [ ! "${1}" = "--" ] && {
@@ -99,8 +99,9 @@ RP+="${RTP:+${RTP#/}}"
 
 # Debug
 [ -n "${DEBUG}" ] && echo "===DEBUG===
- LP='${LP}' (${LPA[@]})
- TP='${TP}' (${TPA[@]})
+  T='${T}'
+ LP='${LP}' (${LPA[@]@Q})
+ TP='${TP}' (${TPA[@]@Q})
  SP='${SP}'
 RLP='${RLP}'
 RTP='${RTP}'
@@ -109,6 +110,6 @@ RTP='${RTP}'
 
 # Do the replace (if the link is still there)
 stat -c "Replacing %N" "${L}"
-[ ! -e "${LP:+$LP/}${RP:+${RP%/}/}${T#${TP:+$TP/}}" ] && \
-  echo "ERROR: Either race condition happened or there's a bug in this script. To debug or report an issue please re-run with DEBUG env var set first." >&2 || \
-  ln -sfnv "${RP:+${RP%/}/}${T#${TP:+$TP/}}" "${L}"
+[ ! -e "${LP:+$LP/}${RP:+${RP%/}/}${T:$((${#TP}+1))}" ] && \
+  echo "ERROR: Either race condition happened or there's a bug in this script. To debug or report an issue please re-run with DEBUG env var set first (export DEBUG=1)." >&2 || \
+  ln -sfnv "${RP:+${RP%/}/}${T:$((${#TP}+1))}" "${L}"
